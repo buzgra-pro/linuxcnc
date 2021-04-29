@@ -1,3 +1,4 @@
+#                                                     -*-makefile-gmake-*-
 #
 # @configure_input@ 
 # on @DATE@
@@ -88,6 +89,7 @@ BUILD_SYS = @BUILD_SYS@
 CC = @CC@
 MANDB = @MANDB@
 HIDRAW_H_USABLE = @HIDRAW_H_USABLE@
+TOOL_NML = @TOOL_NML@
 
 # readline support for halcmd
 READLINE_LIBS =  @READLINE_LIBS@

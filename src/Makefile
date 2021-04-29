@@ -18,6 +18,10 @@ endif
 EXTRAFLAGS :=
 EXTRA_DEBUG ?=
 
+ifndef DESTDIR
+DESTDIR :=
+endif
+
 # see http://www.cmcrossroads.com/ask-mr-make/6535-tracing-rule-execution-in-gnu-make
 # to trace make execution of make in more detail:
 # make VV=1
@@ -95,8 +99,14 @@ ifeq ($(RTPREFIX),)
 $(error Makefile.inc must specify RTPREFIX and other variables)
 endif
 
+ifeq ($(TOOL_NML),yes)
+  TOOL_NML_FLAG := -DTOOL_NML
+  $(info TOOL_NML_FLAG =$(TOOL_NML_FLAG))
+else
+endif
+
 cc-option = $(shell if $(CC) $(CFLAGS) $(1) -S -o /dev/null -xc /dev/null \
-	     > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi ;)
+	     > /dev/null 2>&1; then echo "$(1)"; fi ;)
 cxx-option = $(shell if $(CXX) $(CXXFLAGS) $(1) -S -o /dev/null -xc++ /dev/null \
             > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi ;)
 
@@ -139,16 +149,19 @@ SUBDIRS := \
     \
     emc/usr_intf/axis emc/usr_intf/touchy emc/usr_intf/stepconf emc/usr_intf/pncconf \
     emc/usr_intf/gremlin emc/usr_intf/gscreen emc/usr_intf/pyui emc/usr_intf/qtvcp \
-    emc/usr_intf/gmoccapy \
+    emc/usr_intf/gmoccapy emc/usr_intf/qtplasmac\
     emc/usr_intf emc/nml_intf emc/task emc/iotask emc/kinematics emc/tp emc/canterp \
     emc/motion emc/ini emc/rs274ngc emc/sai emc emc/pythonplugin \
     emc/motion-logger \
+    emc/tooldata \
     \
     module_helper \
     \
     po \
     \
     ../docs/src ../docs/src/source-highlight \
+    \
+    ../tests \
 
 
 
@@ -213,6 +226,9 @@ CXXFLAGS := $(INCLUDE) $(EXTRA_DEBUG) -DULAPI $(DEBUG) $(OPT) -Woverloaded-virtu
 CXXFLAGS += $(call cxx-option, -Wno-psabi)
 CXXFLAGS += $(call cxx-option, -std=gnu++11, -std=gnu++0x)
 
+CFLAGS   += $(TOOL_NML_FLAG)
+CXXFLAGS += $(TOOL_NML_FLAG)
+
 ifeq ($(RUN_IN_PLACE),yes)
 LDFLAGS := -L$(LIB_DIR) -Wl,-rpath,$(LIB_DIR) $(LIBTIRPC_LIBS) $(LDFLAGS)
 else
@@ -270,12 +286,16 @@ INFILES = \
 	../scripts/haltcl ../scripts/rtapi.conf Makefile.inc Makefile.modinc \
 	../tcl/linuxcnc.tcl ../scripts/halrun ../scripts/rip-environment \
 	../scripts/linuxcncmkdesktop \
-	 ../lib/python/nf.py \
-	../share/desktop-directories/cnc.directory ../share/menus/CNC.menu \
+	../lib/python/nf.py \
+	../share/desktop-directories/linuxcnc-doc.directory \
+	../share/desktop-directories/linuxcnc-ref.directory \
+	../share/desktop-directories/linuxcnc-cnc.directory \
+	../share/menus/CNC.menu \
 	../share/applications/linuxcnc.desktop \
 	../share/applications/linuxcnc-latency.desktop \
 	../scripts/linuxcnc_var \
 	../scripts/halcmd_twopass \
+	../scripts/runtests \
 
 $(INFILES): %: %.in config.status
 	@./config.status --file=$@
@@ -291,7 +311,6 @@ HEADERS := \
     emc/ini/emcIniFile.hh \
     emc/ini/iniaxis.hh \
     emc/ini/inijoint.hh \
-    emc/ini/initool.hh \
     emc/ini/initraj.hh \
     emc/ini/inihal.hh \
     emc/kinematics/cubic.h \
@@ -401,7 +420,8 @@ HEADERS := \
     rtapi/rtapi_stdint.h \
     rtapi/rtapi_ctype.h \
     rtapi/rtapi_errno.h \
-    rtapi/rtapi_string.h
+    rtapi/rtapi_string.h \
+    rtapi/rtapi_vsnprintf.h
 
 # the "headers" target installs all the header files in ../include
 .PHONY: headers
@@ -583,16 +603,8 @@ NC_FILES=$(filter-out %/butterfly.ngc,$(call GLOB,../nc_files/*))
 TCL=$(call GLOB,../tcl/*.tcl)
 TCL_BIN=$(call GLOB,../tcl/bin/*.tcl) ../tcl/bin/popimage
 
-ifeq ($(DESTDIR),)
-install:
-	$(Q)echo "'make install' is only supported for building packages,"
-	$(Q)echo "and it doesn't look like that is what is going on because"
-	$(Q)echo "you have not set DESTDIR."
-	$(Q)exit 99
-else
 install: install-kernel-dep install-kernel-indep
-	$(ECHO) "Installed in $(DESTDIR) with prefix $(prefix)"
-endif
+	$(ECHO) "Installed in DESTDIR='$(DESTDIR)' with prefix $(prefix)"
 
 install-dirs:
 	$(DIR) $(DESTDIR)$(initd_dir) $(DESTDIR)$(EMC2_RTLIB_DIR) \
@@ -633,6 +645,7 @@ install-kernel-indep: install-dirs
 	$(EXE) ../scripts/halrun $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/halcmd_twopass $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/haltcl $(DESTDIR)$(bindir)
+	$(EXE) ../scripts/linuxcnc-python $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/simulate_probe $(DESTDIR)$(bindir)
 	$(EXE) ../scripts/sim_pin $(DESTDIR)$(bindir)
 	$(FILE) ../*.png ../*.gif $(DESTDIR)$(datadir)/linuxcnc
@@ -684,7 +697,8 @@ install-kernel-indep: install-dirs
 	$(FILE) ../share/linuxcnc/pncconf/*.glade $(DESTDIR)$(prefix)/share/linuxcnc/pncconf
 	$(FILE) ../share/linuxcnc/gremlin_view.ui $(DESTDIR)$(prefix)/share/linuxcnc
 	$(FILE) ../share/linuxcnc/popupkeyboard.ui $(DESTDIR)$(prefix)/share/linuxcnc
-	$(FILE) ../configs/common/linuxcnc.nml $(DESTDIR)$(prefix)/share/linuxcnc
+	$(FILE) ../configs/common/linuxcnc.nml     $(DESTDIR)$(prefix)/share/linuxcnc
+	$(FILE) ../configs/common/linuxcnc_big.nml $(DESTDIR)$(prefix)/share/linuxcnc
 	$(FILE) ../src/emc/usr_intf/pncconf/pncconf-help/*.txt $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
 	$(FILE) ../src/emc/usr_intf/pncconf/pncconf-help/*.png $(DESTDIR)$(prefix)/share/linuxcnc/pncconf/pncconf-help
 
@@ -702,7 +716,13 @@ install-python: install-dirs
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.5
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.7
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.9
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.11
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/writer
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/writer/ext
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/qtplasmac
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/qt_vismach
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/gcode_utility
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/plugins
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/widgets
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/widgets/widget_icons
@@ -720,10 +740,16 @@ install-python: install-dirs
 	$(FILE) ../lib/python/qtvcp/designer/x86_64/qt5.5/*.gz $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.5
 	$(FILE) ../lib/python/qtvcp/designer/x86_64/qt5.7/*.gz $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.7
 	$(FILE) ../lib/python/qtvcp/designer/x86_64/qt5.9/*.gz $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.9
+	$(FILE) ../lib/python/qtvcp/designer/x86_64/qt5.11/*.gz $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.11
 	$(FILE) ../lib/python/qtvcp/widgets/*.py $(DESTDIR)$(SITEPY)/qtvcp/widgets
 	$(FILE) ../lib/python/qtvcp/widgets/widget_icons/*.png ../lib/python/qtvcp/widgets/widget_icons/*.gif $(DESTDIR)$(SITEPY)/qtvcp/widgets/widget_icons
 	$(FILE) ../lib/python/qtvcp/plugins/*.py $(DESTDIR)$(SITEPY)/qtvcp/plugins
 	$(FILE) ../lib/python/qtvcp/lib/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib
+	$(FILE) ../lib/python/qtvcp/lib/writer/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/writer
+	$(FILE) ../lib/python/qtvcp/lib/writer/ext/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/writer/ext
+	$(FILE) ../lib/python/qtvcp/lib/qtplasmac/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/qtplasmac
+	$(FILE) ../lib/python/qtvcp/lib/qt_vismach/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/qt_vismach
+	$(FILE) ../lib/python/qtvcp/lib/gcode_utility/*.py ../lib/python/qtvcp/lib/gcode_utility/*.ui ../lib/python/qtvcp/lib/gcode_utility/*.txt $(DESTDIR)$(SITEPY)/qtvcp/lib/gcode_utility
 	$(FILE) ../lib/python/gmoccapy/*.py $(DESTDIR)$(SITEPY)/gmoccapy
 	$(FILE) ../lib/python/gladevcp/*.py $(DESTDIR)$(SITEPY)/gladevcp
 	$(FILE) ../lib/python/gladevcp/*.glade $(DESTDIR)$(SITEPY)/gladevcp
@@ -748,6 +774,12 @@ install-python: install-dirs
 	$(EXE) ../bin/touchy $(DESTDIR)$(bindir)
 	$(EXE) ../bin/gscreen $(DESTDIR)$(bindir)
 	$(EXE) ../bin/qtvcp $(DESTDIR)$(bindir)
+	$(EXE) ../lib/python/qtvcp/designer/install_script $(DESTDIR)$(SITEPY)/qtvcp/designer
+	$(EXE) ../bin/qtplasmac-setup $(DESTDIR)$(bindir)
+	$(EXE) ../bin/qtplasmac-materials $(DESTDIR)$(bindir)
+	$(EXE) ../bin/qtplasmac-plasmac2qt $(DESTDIR)$(bindir)
+	$(EXE) ../bin/qtplasmac-cfg2prefs $(DESTDIR)$(bindir)
+	$(EXE) ../bin/pmx485-test $(DESTDIR)$(bindir)
 	$(EXE) ../bin/gmoccapy $(DESTDIR)$(bindir)
 	$(EXE) ../bin/teach-in $(DESTDIR)$(bindir)
 	$(EXE) ../bin/scorbot-er-3 $(DESTDIR)$(bindir)
@@ -811,6 +843,7 @@ EXTRA_CFLAGS += -msse
 EXTRA_CFLAGS += -g
 endif
 endif
+EXTRA_CFLAGS += -fno-builtin-sin -fno-builtin-cos -fno-builtin-sincos
 
 ifeq "$(USE_STUBS)" "1"
 MATHSTUB := rtapi/mathstubs.o
@@ -1107,7 +1140,7 @@ $(sort $(RTOBJS)) : objects/rt%.o : %.c
 	$(ECHO) Compiling realtime $<
 	@rm -f $@
 	@mkdir -p $(dir $@)
-	$(Q)$(CC) -c $(OPT) $(DEBUG) $(EXTRA_DEBUG) -DRTAPI -I../include \
+	$(Q)$(CC) -c $(OPT) $(DEBUG) $(EXTRA_DEBUG) -DRTAPI \
 		$(EXTRA_CFLAGS) \
 		-MP -MD -MF "${@:.o=.d}" -MT "$@" \
 		$< -o $@
@@ -1267,4 +1300,3 @@ cscope:
 cscopeclean:
 	bash -c 'for f in `find ./ -name "cscope.*out"`;do rm $$f;done'
 # vim:ts=8:sts=8:sw=8:noet:
-

@@ -127,6 +127,12 @@ static void hm2_write(void *void_hm2, long period) {
     // if there are comm problems, wait for the user to fix it
     if ((*hm2->llio->io_error) != 0) return;
 
+    if (!hm2->ddr_initialized) {
+        hm2_ioport_initialize_ddr(hm2);
+        hm2->ddr_initialized = true;
+    }
+
+    hm2_watchdog_prepare_tram_write(hm2);
     hm2_ioport_gpio_prepare_tram_write(hm2);
     hm2_pwmgen_prepare_tram_write(hm2);
     hm2_rcpwmgen_prepare_tram_write(hm2);
@@ -137,7 +143,6 @@ static void hm2_write(void *void_hm2, long period) {
     hm2_sserial_prepare_tram_write(hm2, period);
     hm2_bspi_prepare_tram_write(hm2, period);
     hm2_ssr_prepare_tram_write(hm2);
-    hm2_watchdog_prepare_tram_write(hm2);
     //UARTS need to be explicity handled by an external component
     hm2_tram_write(hm2);
 
@@ -297,6 +302,7 @@ const char *hm2_get_general_function_name(int gtag) {
         case HM2_GTAG_LED:             return "LED";
         case HM2_GTAG_MUXED_ENCODER:   return "Muxed Encoder";
         case HM2_GTAG_MUXED_ENCODER_SEL: return "Muxed Encoder Select";
+        case HM2_GTAG_SMARTSERIALB:
         case HM2_GTAG_SMARTSERIAL:     return "Smart Serial Interface";
         case HM2_GTAG_BSPI:            return "Buffered SPI Interface";
         case HM2_GTAG_UART_RX:         return "UART Receive Channel";
@@ -981,6 +987,7 @@ static int hm2_parse_module_descriptors(hostmot2_t *hm2) {
                 md_accepted = hm2_tp_pwmgen_parse_md(hm2, md_index);
                 break;
 
+            case HM2_GTAG_SMARTSERIALB:
             case HM2_GTAG_SMARTSERIAL:
                 md_accepted = hm2_sserial_parse_md(hm2, md_index);
                 break;
